@@ -111,8 +111,7 @@ main :: IO ()
 main = do 
   logOptions <- logOptionsHandle stderr True
   withLogFunc logOptions $ \lf -> do
-    runRIO lf $ do
-      key <- liftIO generateKey
-      let jwtSettings = defaultJWTSettings key
-      let context = jwtSettings :. defaultCookieSettings :. EmptyContext
-      liftIO $ run 8080 $ runApplicationWithContext context loggingExceptionHandler id proxy (api jwtSettings) lf 
+    key <- liftIO generateKey
+    let jwtSettings = defaultJWTSettings key
+    let context = jwtSettings :. defaultCookieSettings :. EmptyContext
+    liftIO $ run 8080 $ runApplicationWithContext context loggingExceptionHandler id proxy (api jwtSettings) lf 
