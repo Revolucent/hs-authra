@@ -31,7 +31,7 @@ instance FromJSON UserRole where
 
 data User = User {
   sub :: UUID,
-  role :: UserRole,
+  rol :: UserRole,
   spa :: UUID
 } deriving (Eq, Show, Generic)
 
@@ -42,7 +42,7 @@ instance ToJWT User
 instance FromJWT User
 
 newtype JWTResponse = JWTResponse {
-  jwt :: Text 
+  jwt :: Text
 } deriving (Generic, Show)
 
 instance ToJSON JWTResponse
@@ -54,19 +54,19 @@ login jwtSettings = do
   let sub = fromJust $ UUID.fromText "92B12BD5-CD8D-426D-AD11-F84E35E25B2C"
   let spa = fromJust $ UUID.fromText "6C3B2274-69D0-42B3-BCAB-37266B3BE6CE"
   let user = User sub UserRoleOwner spa
-  logDebug $ uformat shown user 
+  logDebug $ uformat shown user
   token <- liftIO $ makeJWT user jwtSettings Nothing
   case token of
     Left err -> do
       logError $ uformat shown err
       throwIO err500
-    Right token -> case decodeUtf8' (toStrict token) of 
+    Right token -> case decodeUtf8' (toStrict token) of
       Left err -> do
         logError $ uformat shown err
         throwIO err500
       Right jwt -> return $ JWTResponse jwt
 
-type Health = "health" :> Get '[PlainText] Text 
+type Health = "health" :> Get '[PlainText] Text
 
 health :: Monad m => m Text
 health = return "health"
@@ -76,8 +76,8 @@ type Bang = "bang" :> Get '[PlainText] Text
 type Protected = Bong :<|> Bang
 type Unprotected = Login :<|> Health
 
-bong :: User -> RIO LogFunc Text 
-bong user = do 
+bong :: User -> RIO LogFunc Text
+bong user = do
   logDebug "Bong!!!"
   return "bong"
 
@@ -86,14 +86,23 @@ bang user = do
   logDebug "Bang!!!"
   return "bang"
 
-type API = (Auth '[JWT] User :> Protected) :<|> Unprotected 
+type API = (Auth '[JWT] User :> Protected) :<|> Unprotected
 
 authenticated :: User -> ServerT Protected (RIO LogFunc)
-authenticated user = bong user :<|> bang user
+authenticated user = checkedBong user :<|> (checkUser user >>= bang) 
+  where
+    throwIfBanned :: User -> RIO LogFunc ()
+    throwIfBanned user = throwIO err403
+    checkUser :: User -> RIO LogFunc User
+    checkUser user = do 
+      throwIfBanned user
+      return user
+    checkedBong :: User -> RIO LogFunc Text
+    checkedBong = checkUser >=> bong 
 
-protected :: AuthResult User -> ServerT Protected (RIO LogFunc) 
-protected (Authenticated user) = authenticated user 
-protected _ = unauthenticated :<|> unauthenticated 
+protected :: AuthResult User -> ServerT Protected (RIO LogFunc)
+protected (Authenticated user) = authenticated user
+protected _ = unauthenticated :<|> unauthenticated
   where
     unauthenticated :: RIO LogFunc a
     unauthenticated = throwIO err401
@@ -108,10 +117,10 @@ api :: JWTSettings -> ServerT API (RIO LogFunc)
 api jwtSettings = protected :<|> unprotected jwtSettings
 
 main :: IO ()
-main = do 
+main = do
   logOptions <- logOptionsHandle stderr True
   withLogFunc logOptions $ \lf -> do
     key <- liftIO generateKey
     let jwtSettings = defaultJWTSettings key
     let context = jwtSettings :. defaultCookieSettings :. EmptyContext
-    liftIO $ run 8080 $ runApplicationWithContext context loggingExceptionHandler id proxy (api jwtSettings) lf 
+    liftIO $ run 8080 $ runApplicationWithContext context loggingExceptionHandler id proxy (api jwtSettings) lf
